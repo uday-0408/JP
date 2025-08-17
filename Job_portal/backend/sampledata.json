@@ -1,0 +1,21 @@
+{
+  "register": {
+    "fullname": "uday",
+    "email": "uday@gmail.com",
+    "phoneNumber": "6351664613",
+    "password": "uday1234",
+    "role": "student"
+  },
+  "login": {
+    "email": "uday@gmail.com",
+    "password": "uday1234",
+    "role": "student"
+  },
+  "update": {
+    "fullname": "uday",
+    "email": "uday@gmail.com2",
+    "phoneNumber": "6351664613",
+    "bio": "this is the bio",
+    "skills": "java,python,mern,django,world_Domination"
+  }
+}
