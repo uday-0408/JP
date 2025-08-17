@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Find Job Compatibility</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; }
+        .container { max-width: 1000px; margin: 40px auto; background: #fff; padding: 32px 24px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        h2 { text-align: center; margin-bottom: 24px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="text"] { width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 10px; background: #007bff; color: #fff; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 24px; background: #f0f4f8; padding: 16px; border-radius: 6px; font-size: 15px; }
+        .error { color: #d00; margin-top: 16px; }
+        .row { display: flex; margin: 0 -15px; }
+        .col { flex: 1; padding: 0 15px; }
+        .form-col { flex: 0 0 300px; }
+        .content-box { background: #f9f9f9; border-radius: 6px; padding: 15px; margin-bottom: 20px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; border: 1px solid #eee; font-size: 14px; }
+        .content-box h3 { margin-top: 0; }
+        .main-title { margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 class="main-title">Job Compatibility Checker</h2>
+        <div class="row">
+            <div class="col form-col">
+                <form id="compatibilityForm">
+                    <label for="resumeId">Resume ID:</label>
+                    <input type="text" id="resumeId" name="resumeId" required>
+                    <label for="jobId">Job ID:</label>
+                    <input type="text" id="jobId" name="jobId" required>
+                    <button type="submit">Check Compatibility</button>
+                </form>
+                <div id="progressBar" style="display:none;margin:18px 0;text-align:center;">
+                    <div style="width:100%;background:#eee;border-radius:6px;overflow:hidden;height:18px;">
+                        <div id="bar" style="width:0%;height:18px;background:#007bff;transition:width 0.4s;"></div>
+                    </div>
+                    <span id="progressText" style="font-size:13px;color:#555;">Processing...</span>
+                </div>
+                <div id="error" class="error"></div>
+            </div>
+            <div class="col">
+                <div class="content-box">
+                    <h3>Resume Content</h3>
+                    <div id="resumeContent">No resume selected</div>
+                </div>
+                <div class="content-box">
+                    <h3>Job Description</h3>
+                    <div id="jobContent">No job selected</div>
+                </div>
+            </div>
+        </div>
+        <div id="result" class="result" style="display:none;"></div>
+    </div>
+    <script>
+        document.getElementById('compatibilityForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('error').textContent = '';
+            document.getElementById('progressBar').style.display = 'block';
+            setProgressBar(20);
+            const resumeId = document.getElementById('resumeId').value.trim();
+            const jobId = document.getElementById('jobId').value.trim();
+            if (!resumeId || !jobId) {
+                document.getElementById('error').textContent = 'Both fields are required.';
+                document.getElementById('progressBar').style.display = 'none';
+                return;
+            }
+            
+            // Fetch resume and job content right away
+            fetchResumeContent(resumeId);
+            fetchJobContent(jobId);
+            
+            let progress = 20;
+            let interval = setInterval(() => {
+                progress = Math.min(progress + Math.random() * 15, 85);
+                setProgressBar(progress);
+            }, 400);
+            try {
+                const response = await fetch('/api/find_jobs/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ resume_id: resumeId, job_id: jobId })
+                });
+                clearInterval(interval);
+                setProgressBar(100);
+                setTimeout(() => {
+                    document.getElementById('progressBar').style.display = 'none';
+                    setProgressBar(0);
+                }, 600);
+                const data = await response.json();
+                if (response.ok && data.match) {
+                    let parsed;
+                    try { parsed = JSON.parse(data.match); } catch { parsed = data.match; }
+                    document.getElementById('result').style.display = 'block';
+                    if (typeof parsed === 'object') {
+                        document.getElementById('result').innerHTML = '<pre style="background:#222;color:#fff;padding:12px;border-radius:6px;overflow-x:auto;">' + syntaxHighlight(JSON.stringify(parsed, null, 2)) + '</pre>';
+                    } else {
+                        document.getElementById('result').textContent = parsed;
+                    }
+                } else {
+                    document.getElementById('error').textContent = data.error || 'Unexpected error.';
+                }
+            } catch (err) {
+                clearInterval(interval);
+                document.getElementById('progressBar').style.display = 'none';
+                setProgressBar(0);
+                document.getElementById('error').textContent = 'Network error.';
+            }
+        });
+
+        function setProgressBar(percent) {
+            document.getElementById('bar').style.width = percent + '%';
+            document.getElementById('progressText').textContent = percent < 100 ? 'Processing...' : 'Done!';
+        }
+        
+        // Syntax highlight JSON
+        function syntaxHighlight(json) {
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\w+)": )?("[^"]*"|\d+|true|false|null)/g, function(match, p1, p2, p3) {
+                let cls = 'number';
+                if (/^".*"$/.test(p3)) {
+                    cls = p1 ? 'key' : 'string';
+                } else if (/true|false/.test(p3)) {
+                    cls = 'boolean';
+                } else if (/null/.test(p3)) {
+                    cls = 'null';
+                }
+                if (p1) {
+                    return '<span style="color:#9cdcfe">' + p1 + '</span><span style="color:#ce9178">' + p3 + '</span>';
+                }
+                return '<span style="color:#ce9178">' + p3 + '</span>';
+            });
+        }
+        
+        // Fetch resume content
+        async function fetchResumeContent(id) {
+            try {
+                const response = await fetch(`/api/get_resume/?resume_id=${id}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('resumeContent').textContent = data.text || "No content available";
+                } else {
+                    document.getElementById('resumeContent').textContent = "Failed to load resume";
+                }
+            } catch (err) {
+                document.getElementById('resumeContent').textContent = "Error loading resume";
+            }
+        }
+        
+        // Fetch job content
+        async function fetchJobContent(id) {
+            try {
+                const response = await fetch(`/api/get_job/?job_id=${id}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('jobContent').textContent = data.text || "No content available";
+                } else {
+                    document.getElementById('jobContent').textContent = "Failed to load job";
+                }
+            } catch (err) {
+                document.getElementById('jobContent').textContent = "Error loading job";
+            }
+        }
+    </script>
+</body>
+</html>

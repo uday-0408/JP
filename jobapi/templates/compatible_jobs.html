@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ATS Job Compatibility Checker</title>
+</head>
+<body>
+    <h2>Check Resume & Job Compatibility (Groq-powered)</h2>
+    <form id="compatForm">
+        <label for="resume_id">Resume ID:</label>
+        <input type="text" id="resume_id" name="resume_id" required>
+        <label for="job_id">Job ID:</label>
+        <input type="text" id="job_id" name="job_id" required>
+        <button type="submit">Check Compatibility</button>
+    </form>
+    <div id="preview"></div>
+    <div id="result"></div>
+    <script>
+        document.getElementById('compatForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const resumeId = document.getElementById('resume_id').value;
+            const jobId = document.getElementById('job_id').value;
+            // Fetch resume
+            const resumeResp = await fetch(`/api/get_resume/?resume_id=${resumeId}`);
+            const resume = await resumeResp.json();
+            // Fetch job
+            const jobResp = await fetch(`/api/get_job/?job_id=${jobId}`);
+            const job = await jobResp.json();
+            document.getElementById('preview').innerHTML =
+                `<h3>Resume Preview:</h3><pre>${resume.text}</pre>
+                 <h3>Job Preview:</h3><pre>${job.text}</pre>`;
+            // Send to Groq
+            const groqResp = await fetch('/api/groq_match/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({resume: resume.text, job: job.text})
+            });
+            const groqResult = await groqResp.json();
+            document.getElementById('result').innerHTML =
+                `<h3>Compatibility Result:</h3><pre>${groqResult.match}</pre>`;
+        };
+    </script>
+</body>
+</html>
