@@ -44,9 +44,29 @@ const Login = () => {
       });
 
       if (res.data.success) {
-        console.log(res.data.user);
+        console.log("✅ Login successful, user data:", res.data.user);
+        
+        // Log cookies after login
+        console.log("🍪 Cookies after login:");
+        document.cookie.split(';').forEach(cookie => {
+          console.log(`🍪 Cookie: ${cookie.trim()}`);
+        });
+        
+        // Set user in Redux store which also sets isAuthenticated flag
         dispatch(setUser(res.data.user));
+        
         toast.success(res.data.message || "Login successful!");
+        
+        // Verify cookie was set by checking /cookie-check endpoint
+        try {
+          const cookieCheck = await axios.get(`${BOOKMARK_API_END_POINT}/cookie-check`, {
+            withCredentials: true
+          });
+          console.log("🍪 Cookie check result:", cookieCheck.data);
+        } catch (err) {
+          console.error("❌ Cookie check failed:", err);
+        }
+        
         navigate("/");
       }
     } catch (error) {

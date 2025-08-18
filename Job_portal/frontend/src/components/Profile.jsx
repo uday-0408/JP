@@ -5,8 +5,10 @@ import { Button } from "./ui/button";
 import { Contact, Mail, Pen } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Label } from "./ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import AppliedJobTable from "./AppliedJobTable";
 import UpdateProfileDialog from "./UpdateProfileDialog";
+import BookmarkedJobs from "./BookmarkedJobs";
 import { useSelector } from "react-redux";
 import useGetAppliedJobs from "../hooks/useGetAppliedJobs";
 
@@ -85,10 +87,20 @@ const Profile = () => {
           )}
         </div>
       </div>
-      <div className="max-w-4xl mx-auto bg-white rounded-2xl ">
-        <h1 className="font-bold text-lg my-5">Applied Jobs</h1>
-        {/* Application componenxt */}
-        <AppliedJobTable />
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl">
+        <Tabs defaultValue="applied" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="applied">Applied Jobs</TabsTrigger>
+            <TabsTrigger value="bookmarked">Bookmarked Jobs</TabsTrigger>
+          </TabsList>
+          <TabsContent value="applied">
+            <h1 className="font-bold text-lg my-5">Applied Jobs</h1>
+            <AppliedJobTable />
+          </TabsContent>
+          <TabsContent value="bookmarked">
+            <BookmarkedJobs />
+          </TabsContent>
+        </Tabs>
       </div>
       <UpdateProfileDialog open={open} setOpen={setOpen} />
     </div>
