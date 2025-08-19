@@ -19,6 +19,10 @@ const job = mongoose.Schema(
       required: true,
       trim: true,
     },
+    isExtracted: {
+      type: Boolean,
+      default: false
+    },
     salary: {
       type: Number, // e.g., "50,000 - 70,000"
       required: true,

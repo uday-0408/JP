@@ -289,21 +289,64 @@ const isAppliedHandler = async () => {
         toast.error(error.response.data.message);
     }
 }
+  // Function to extract job data from Django API
+  const extractJobData = async (job) => {
+    if (!job.djangoJobId || job.isExtracted) {
+      return job; // No need to extract if it's not a Django job or already extracted
+    }
+    
+    try {
+      console.log("Extracting job data for job ID:", job._id);
+      toast.info("Extracting structured job data...");
+      
+      const res = await axios.post(
+        `${JOB_API_END_POINT}/extract-job-data/${job._id}`,
+        {},
+        { withCredentials: true }
+      );
+      
+      if (res.data.success) {
+        console.log("Job data extracted successfully:", res.data.job);
+        toast.success("Job data extracted successfully");
+        return res.data.job; // Return the updated job
+      } else {
+        console.error("Failed to extract job data:", res.data);
+        toast.error("Failed to extract job data");
+        return job; // Return the original job
+      }
+    } catch (error) {
+      console.error("Error extracting job data:", error);
+      toast.error("Error extracting job data: " + (error.response?.data?.message || error.message));
+      return job; // Return the original job
+    }
+  };
+
   useEffect(() => {
     const fetchSingleJob = async () => {
       try {
         const res = await axios.get(`${JOB_API_END_POINT}/get/${jobId}`, {
           withCredentials: true,
         });
+        
         if (res.data.success) {
-          dispatch(setSingleJob(res.data.job));
+          let job = res.data.job;
+          
+          // If job is from Django and not yet extracted, extract data
+          if (job.djangoJobId && !job.isExtracted) {
+            job = await extractJobData(job);
+          }
+          
+          dispatch(setSingleJob(job));
         }
+        
         // Check if the user has already applied for the job
         await isAppliedHandler();
       } catch (error) {
         console.log(error);
+        toast.error("Error fetching job details: " + (error.response?.data?.message || error.message));
       }
     };
+    
     fetchSingleJob();
   }, [jobId, dispatch, user?._id]);
 
@@ -356,6 +399,20 @@ const isAppliedHandler = async () => {
         Job Description
       </h1>
       <div className="my-4">
+        {/* Display badge if job is from Django */}
+        {singleJob?.djangoJobId && (
+          <div className="mb-4">
+            <Badge variant={singleJob?.isExtracted ? "outline" : "secondary"} className="mr-2">
+              {singleJob?.isExtracted ? "Django Job (Extracted)" : "Django Job"}
+            </Badge>
+            {!singleJob?.isExtracted && (
+              <span className="text-sm text-gray-500">
+                This job's details are being processed for better accuracy
+              </span>
+            )}
+          </div>
+        )}
+        
         <h1 className="font-bold my-1">
           Role:{}
           <span className="pl-4 font-normal text-gray-800">
@@ -374,6 +431,19 @@ const isAppliedHandler = async () => {
             {singleJob?.description}
           </span>
         </h1>
+        
+        {/* Display requirements if available */}
+        {singleJob?.requirements && singleJob.requirements.length > 0 && (
+          <div className="my-3">
+            <h1 className="font-bold mb-2">Requirements:</h1>
+            <ul className="list-disc pl-8 space-y-1">
+              {singleJob.requirements.map((req, index) => (
+                <li key={index} className="text-gray-800">{req}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        
         <h1 className="font-bold my-1">
           Experience:{" "}
           <span className="pl-4 font-normal text-gray-800">

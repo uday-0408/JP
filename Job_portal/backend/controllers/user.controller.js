@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import getDataUri from "../utils/datauri.js";
 import axios from "axios";
+import cloudinary from "../utils/cloudinary.js";
 // import streamifier from "streamifier";s
 
 export const register = async (req, res) => {
@@ -164,15 +165,19 @@ export const updateProfile = async (req, res) => {
   try {
     const { fullname, email, phoneNumber, bio, skills } = req.body;
 
-    const file = req.file;
+    // Get files from multer (now using .files instead of .file)
+    const resumeFile = req.files?.file?.[0];
+    const profilePictureFile = req.files?.profilePicture?.[0];
+    
     let cloudResponse = null;
+    let profilePictureUrl = null;
 
-    // Only process file if it exists
-    if (file) {
-      console.log("📥 File Received in Backend:");
-      console.log("  Name:", file.originalname);
-      console.log("  Mimetype:", file.mimetype);
-      console.log("  Buffer Length:", file.buffer?.length);
+    // Process resume file if it exists
+    if (resumeFile) {
+      console.log("📥 Resume File Received in Backend:");
+      console.log("  Name:", resumeFile.originalname);
+      console.log("  Mimetype:", resumeFile.mimetype);
+      console.log("  Buffer Length:", resumeFile.buffer?.length);
 
       // Instead of uploading to Cloudinary, forward the resume to the Django resume upload endpoint
       try {
@@ -196,7 +201,7 @@ export const updateProfile = async (req, res) => {
         const FormDataModule = await import('form-data');
         const FormData = FormDataModule.default;
         const form = new FormData();
-        form.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+        form.append('file', resumeFile.buffer, { filename: resumeFile.originalname, contentType: resumeFile.mimetype });
 
         console.log("FormData created successfully with file");
         const headers = form.getHeaders();
@@ -288,8 +293,69 @@ export const updateProfile = async (req, res) => {
     if (cloudResponse && cloudResponse.resumeId) {
       // store the returned Django resume id and the original filename for reference
       user.profile.resumeId = cloudResponse.resumeId;
-      user.profile.resumeOriginalName = file.originalname;
+      user.profile.resumeOriginalName = resumeFile.originalname;
       console.log("Resume recorded with Django id:", cloudResponse.resumeId);
+    }
+    
+    // Handle profile picture upload (to Cloudinary)
+    if (profilePictureFile) {
+      console.log("🖼️ Profile Picture Received in Backend:");
+      console.log("  Name:", profilePictureFile.originalname);
+      console.log("  Mimetype:", profilePictureFile.mimetype);
+      console.log("  Buffer Length:", profilePictureFile.buffer?.length);
+      
+      try {
+        // Get data URI from file
+        const fileUri = getDataUri(profilePictureFile);
+        if (!fileUri || !fileUri.content) {
+          throw new Error("Failed to convert file to Data URI");
+        }
+        
+        // Debug cloudinary
+        console.log("Cloudinary object:", typeof cloudinary);
+        console.log("Cloudinary uploader:", typeof cloudinary?.uploader);
+        
+        // Re-import cloudinary directly here as a fallback
+        if (!cloudinary || !cloudinary.uploader) {
+          console.warn("Cloudinary import failed, trying direct import...");
+          const { v2: directCloudinary } = await import('cloudinary');
+          
+          // Configure directly
+          directCloudinary.config({
+            cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+            api_key: process.env.CLOUDINARY_API_KEY,
+            api_secret: process.env.CLOUDINARY_API_SECRET,
+          });
+          
+          // Upload using direct import
+          const result = await directCloudinary.uploader.upload(fileUri.content, {
+            folder: "job_portal/profile_pictures",
+            public_id: `profile_${user._id}_${Date.now()}`,
+            overwrite: true,
+          });
+          
+          // Update user with new profile picture URL
+          user.profile.profilePicture = result.secure_url;
+          console.log("Profile picture uploaded to Cloudinary (direct import):", result.secure_url);
+        } else {
+          // Upload to Cloudinary using the imported module
+          const result = await cloudinary.uploader.upload(fileUri.content, {
+            folder: "job_portal/profile_pictures",
+            public_id: `profile_${user._id}_${Date.now()}`,
+            overwrite: true,
+          });
+          
+          // Update user with new profile picture URL
+          user.profile.profilePicture = result.secure_url;
+          console.log("Profile picture uploaded to Cloudinary:", result.secure_url);
+        }
+      } catch (cloudinaryError) {
+        console.error("Error uploading profile picture to Cloudinary:", cloudinaryError);
+        console.error("Stack trace:", cloudinaryError.stack);
+        // Use a default profile picture as fallback
+        console.log("Using default profile picture as fallback");
+        // Don't update profile picture on error, leave existing one
+      }
     }
 
     await user.save();

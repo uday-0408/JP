@@ -17,7 +17,7 @@ const jobFilterData = [
   {
     filterType: "Location",
     icon: <MapPin className="w-4 h-4 text-gray-500" />,
-    array: ["Remote", "Hybrid", "On-site", "Ahmedabad", "Delhi NCR", "Bangalore", "Hyderabad", "Pune", "Mumbai", "Chennai"],
+    array: ["Remote", "Hybrid", "On-site"],
   },
   {
     filterType: "Job Category",

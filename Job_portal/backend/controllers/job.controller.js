@@ -587,3 +587,116 @@ export const getAdminJobs = async (req, res) => {
     });
   }
 };
+
+export const extractAndUpdateJobData = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    // Validate jobId
+    if (!jobId || !mongoose.Types.ObjectId.isValid(jobId)) {
+      return res.status(400).json({
+        message: "Invalid job ID",
+        success: false,
+      });
+    }
+    
+    // Find the job in MongoDB
+    const job = await Job.findById(jobId);
+    
+    if (!job) {
+      return res.status(404).json({
+        message: "Job not found",
+        success: false,
+      });
+    }
+    
+    // If job is already extracted, return the existing job
+    if (job.isExtracted) {
+      return res.status(200).json({
+        message: "Job data already extracted",
+        success: true,
+        job,
+      });
+    }
+    
+    // Make request to Django API to extract job data
+    try {
+      const djangoResponse = await axios.post(
+        "http://localhost:5000/api/extract_job_data/",
+        {
+          description: job.description,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      
+      // Update the job with extracted data
+      const extractedData = djangoResponse.data;
+      
+      // Create update object with only valid fields
+      const updateData = {
+        isExtracted: true,
+      };
+      
+      // Only update fields that have valid values
+      if (extractedData.title && extractedData.title.trim() !== "") {
+        updateData.title = extractedData.title;
+      }
+      
+      if (extractedData.salary && !isNaN(extractedData.salary) && extractedData.salary > 0) {
+        updateData.salary = extractedData.salary;
+      }
+      
+      if (extractedData.experienceLevel !== undefined && extractedData.experienceLevel >= 0) {
+        updateData.experienceLevel = extractedData.experienceLevel;
+      }
+      
+      if (extractedData.location && extractedData.location.length > 0) {
+        // If location is an array, use the first location
+        updateData.location = Array.isArray(extractedData.location) 
+          ? extractedData.location[0] 
+          : extractedData.location;
+      }
+      
+      if (extractedData.jobType && extractedData.jobType.trim() !== "") {
+        updateData.jobType = extractedData.jobType;
+      }
+      
+      if (extractedData.requirements && Array.isArray(extractedData.requirements) && extractedData.requirements.length > 0) {
+        updateData.requirements = extractedData.requirements;
+      }
+      
+      // Update the job in MongoDB
+      const updatedJob = await Job.findByIdAndUpdate(
+        jobId,
+        updateData,
+        { new: true }
+      );
+      
+      return res.status(200).json({
+        message: "Job data extracted and updated successfully",
+        success: true,
+        job: updatedJob,
+      });
+      
+    } catch (djangoError) {
+      console.error("Error extracting job data from Django:", djangoError);
+      return res.status(500).json({
+        message: "Error extracting job data from Django API",
+        success: false,
+        error: djangoError.message,
+      });
+    }
+    
+  } catch (error) {
+    console.error("Error in extractAndUpdateJobData:", error);
+    return res.status(500).json({
+      message: `Internal Server Error: ${error.message}`,
+      success: false,
+      error: error.message,
+    });
+  }
+};

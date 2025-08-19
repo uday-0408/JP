@@ -31,6 +31,8 @@ const UpdateProfileDialog = ({ open, setOpen }) => {
       ? user.profile.skills.join(", ")
       : "",
     file: null,
+    profilePicture: null,
+    profilePicturePreview: null,
   });
   const dispatch = useDispatch();
   const changeEventHandler = (e) => {
@@ -45,14 +47,36 @@ const UpdateProfileDialog = ({ open, setOpen }) => {
     setInput({ ...input, file });
   };
 
+  // Clean up function for object URLs
+  const cleanupObjectUrls = () => {
+    if (input.profilePicturePreview) {
+      URL.revokeObjectURL(input.profilePicturePreview);
+    }
+  };
+  
+  // Clean up when component unmounts
+  React.useEffect(() => {
+    return () => {
+      cleanupObjectUrls();
+    };
+  }, []);
+  
   const submitHandler = async (e) => {
     e.preventDefault();
     if (input.file) {
-      console.log("🧾 File Info:");
+      console.log("🧾 Resume File Info:");
       console.log("  Name:", input.file.name);
       console.log("  Type:", input.file.type);
       console.log("  Size:", input.file.size);
       console.log("  instanceof File:", input.file instanceof File);
+    }
+    
+    if (input.profilePicture) {
+      console.log("🖼️ Profile Picture Info:");
+      console.log("  Name:", input.profilePicture.name);
+      console.log("  Type:", input.profilePicture.type);
+      console.log("  Size:", input.profilePicture.size);
+      console.log("  instanceof File:", input.profilePicture instanceof File);
     }
 
     const formData = new FormData();
@@ -61,8 +85,15 @@ const UpdateProfileDialog = ({ open, setOpen }) => {
     formData.append("phoneNumber", input.phoneNumber);
     formData.append("bio", input.bio);
     formData.append("skills", input.skills);
+    
+    // Append resume file if selected
     if (input.file) {
       formData.append("file", input.file);
+    }
+    
+    // Append profile picture if selected
+    if (input.profilePicture) {
+      formData.append("profilePicture", input.profilePicture);
     }
     try {
       setLoading(true);
@@ -86,6 +117,9 @@ const UpdateProfileDialog = ({ open, setOpen }) => {
     } finally {
       setLoading(false);
     }
+    // Clean up object URLs
+    cleanupObjectUrls();
+    
     setOpen(false);
     console.log(input);
   };
@@ -183,6 +217,54 @@ const UpdateProfileDialog = ({ open, setOpen }) => {
                   onChange={fileChangeHandler}
                   className="col-span-3"
                 />
+              </div>
+              
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="profilePicture" className="text-right">
+                  Profile Picture
+                </Label>
+                <div className="col-span-3 space-y-2">
+                  <Input
+                    id="profilePicture"
+                    name="profilePicture"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        // Create preview URL for the selected image
+                        const previewUrl = URL.createObjectURL(file);
+                        setInput({ 
+                          ...input, 
+                          profilePicture: file,
+                          profilePicturePreview: previewUrl
+                        });
+                      } else {
+                        setInput({
+                          ...input,
+                          profilePicture: null,
+                          profilePicturePreview: null
+                        });
+                      }
+                    }}
+                  />
+                  
+                  {/* Preview of current or new profile picture */}
+                  {(input.profilePicturePreview || user?.profile?.profilePicture) && (
+                    <div className="mt-2 flex flex-col items-center">
+                      <div className="h-20 w-20 rounded-full overflow-hidden border border-gray-200">
+                        <img 
+                          src={input.profilePicturePreview || user?.profile?.profilePicture}
+                          alt="Profile Preview" 
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <span className="text-xs text-gray-500 mt-1">
+                        {input.profilePicture ? 'New profile picture' : 'Current profile picture'}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
