@@ -61,6 +61,12 @@ const job = mongoose.Schema(
         ref: "Application", // Reference to the User model for applicants
       },
     ],
+    bookmarkedBy: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        bookmarkedAt: { type: Date, default: Date.now }
+      },
+    ],
   },
   { timestamps: true }
 );

@@ -13,41 +13,75 @@ from .models import Job, Resume
 from .serializer import JobSerializer, ResumeSerializer
 from .utils import extract_text_from_pdf
 import tempfile
+from django.views.decorators.http import require_http_methods
 
 
 @csrf_exempt
 def groq_match_resume_job(request):
+    print("\n--- RESUME MATCHING API ENDPOINT CALLED ---")
+    print(f"Request method: {request.method}")
+    print(f"Content type: {request.content_type}")
+    print(f"POST data keys: {list(request.POST.keys())}")
+    print(f"FILES keys: {list(request.FILES.keys())}")
+
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = JsonResponse({})
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+
     if request.method == "POST":
         # Accepts multipart/form-data: resume file and job_description
         resume_file = request.FILES.get("resume")
         job_description = request.POST.get("job_description")
-        if not resume_file or not job_description:
-            return JsonResponse(
-                {"error": "Missing resume file or job description."}, status=400
+
+        print(f"Resume file received: {resume_file is not None}")
+        if resume_file:
+            print(
+                f"Resume file name: {resume_file.name}, size: {resume_file.size} bytes"
             )
+        print(f"Job description received: {job_description is not None}")
+        if job_description:
+            print(f"Job description length: {len(job_description)} characters")
+
+        if not resume_file or not job_description:
+            error_msg = f"Missing {'resume file' if not resume_file else ''}{' and ' if not resume_file and not job_description else ''}{'job description' if not job_description else ''}"
+            print(f"ERROR: {error_msg}")
+            return JsonResponse({"error": error_msg}, status=400)
 
         # Save the uploaded resume temporarily
+        print("Saving resume to temporary file...")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             for chunk in resume_file.chunks():
                 tmp.write(chunk)
             resume_path = tmp.name
+            print(f"Resume saved to temporary file: {resume_path}")
 
         try:
+            print("Extracting text from PDF...")
             resume_text = extract_text_from_pdf(resume_path)
+            print(f"Successfully extracted {len(resume_text)} characters from resume")
         except Exception as e:
-            return JsonResponse(
-                {"error": f"Failed to extract text from resume: {str(e)}"}, status=400
-            )
+            error_msg = f"Failed to extract text from resume: {str(e)}"
+            print(f"ERROR: {error_msg}")
+            return JsonResponse({"error": error_msg}, status=400)
         finally:
+            print(f"Removing temporary file: {resume_path}")
             os.remove(resume_path)
 
+        print("Loading environment variables...")
         GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+        print(f"GROQ API key loaded: {GROQ_API_KEY is not None}")
+
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json",
         }
+        print("API headers prepared")
 
         prompt = f"""
         You are an advanced ATS (Applicant Tracking System) assistant specializing in software and IT jobs.
@@ -100,7 +134,9 @@ def groq_match_resume_job(request):
                 f"Could not get a response from Groq. Raw response: {groq_resp.text}"
             )
 
-        return JsonResponse({"match": match})
+        response = JsonResponse({"match": match})
+        response["Access-Control-Allow-Origin"] = "*"
+        return response
 
 
 @csrf_exempt
@@ -236,6 +272,130 @@ class ResumeUploadView(generics.CreateAPIView):
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            # Save and return only the new Resume ID
+            instance = serializer.save()
+            return Response({"id": instance.id}, status=status.HTTP_201_CREATED)
+        # Return validation errors
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def extract_job_data(request):
+    """
+    Endpoint for extracting structured job data from job descriptions using Groq API.
+
+    Accepts POST requests with job description text and returns structured JSON data.
+    """
+    try:
+        # Load environment variables
+        load_dotenv()
+
+        # Get the Groq API key
+        groq_api_key = os.getenv("GROQ_API_KEY")
+
+        if not groq_api_key:
+            return JsonResponse(
+                {"error": "GROQ API key not found in environment variables"}, status=500
+            )
+
+        # Parse the request body
+        body_unicode = request.body.decode("utf-8")
+        body = json.loads(body_unicode)
+
+        # Get the job description from the request
+        job_description = body.get("description", "")
+
+        if not job_description:
+            return JsonResponse({"error": "No job description provided"}, status=400)
+
+        # Create the Groq API request
+        headers = {
+            "Authorization": f"Bearer {groq_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        prompt = f"""
+You are an information extraction system.  
+Given a job description, return ONLY a valid JSON object with the following fields:  
+
+{{
+  "title": string,               // Exact official job title
+  "description": string,         // Cleaned job description
+  "salary": number,              // Minimum yearly salary if range exists, else 0
+  "experienceLevel": number,     // 0 = Entry-level/Fresher, 1 = Mid-level, 2 = Senior
+  "location": [string],          // Array of job locations
+  "jobType": string,             // Example: "Full-time", "Part-time", "Internship", "Contract"
+  "requirements": [string],      // Bullet points of qualifications/skills/experience
+  "company": string              // Main company name
+}}
+
+Rules:
+- Do not invent data. If missing, leave as 0, empty string, or empty array.
+- Output must be valid JSON only (starting with {{ and ending with }}).
+- Do not include metadata like djangoJobId, createdAt, updatedAt, applications, __v.
+- Only return extracted values from the description.
+
+Job Description:
+{job_description}
+"""
+
+        payload = {
+            "model": "llama3-70b-8192",  # Using Llama 3 70B model for structured extraction
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,  # Lower temperature for more deterministic output
+            "max_tokens": 2048,
+        }
+
+        # Make the API request to Groq
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+
+        # Check for successful response
+        if response.status_code == 200:
+            response_data = response.json()
+            extracted_data = response_data["choices"][0]["message"]["content"]
+
+            # Clean the response to ensure it's valid JSON
+            extracted_data = extracted_data.strip()
+
+            # Remove any possible markdown code block markers
+            if extracted_data.startswith("```json"):
+                extracted_data = extracted_data[7:]
+            if extracted_data.endswith("```"):
+                extracted_data = extracted_data[:-3]
+
+            extracted_data = extracted_data.strip()
+
+            try:
+                # Parse the extracted JSON data
+                parsed_data = json.loads(extracted_data)
+                return JsonResponse(parsed_data, safe=True)
+            except json.JSONDecodeError as e:
+                return JsonResponse(
+                    {
+                        "error": "Failed to parse extracted data as JSON",
+                        "details": str(e),
+                        "raw_data": extracted_data,
+                    },
+                    status=500,
+                )
+        else:
+            # Return error response
+            return JsonResponse(
+                {
+                    "error": "Error from Groq API",
+                    "status_code": response.status_code,
+                    "response": response.text,
+                },
+                status=response.status_code,
+            )
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON in request body"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

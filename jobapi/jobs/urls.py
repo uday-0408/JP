@@ -5,6 +5,7 @@ from .views import (
     groq_match,
     paginated_jobs,
     groq_match_resume_job,
+    extract_job_data,
 )
 from .resume_views import get_resume
 from .job_views import get_job
@@ -17,4 +18,5 @@ urlpatterns = [
     path("get_job/", get_job, name="get-job"),
     path("paginated_jobs/", paginated_jobs, name="paginated-jobs"),
     path("match_resume_job/", groq_match_resume_job, name="match-resume-job"),
+    path("extract_job_data/", extract_job_data, name="extract-job-data"),
 ]

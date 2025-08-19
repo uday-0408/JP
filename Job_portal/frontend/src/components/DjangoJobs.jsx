@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Navbar from "./shared/Navbar";
 import Job from "./Job";
+import AIFilterCard from "./AIFilterCard";
 import { motion } from "framer-motion";
 import { useSelector } from "react-redux";
 import { useGetDjangoJobs } from "@/hooks/useGetDjangoJobs";
@@ -13,8 +14,71 @@ const DjangoJobs = () => {
   const pageSize = 6;
   
   // Use default empty array to prevent "length of undefined" error
-  const { djangoJobs = [], pagination = {} } = useSelector((store) => store.job);
+  const { djangoJobs = [], pagination = {}, searchedQuery } = useSelector((store) => store.job);
   const { isLoading, error, dataSource } = useGetDjangoJobs(currentPage, pageSize);
+  
+  // State to store filtered jobs
+  const [filteredJobs, setFilteredJobs] = useState(djangoJobs);
+  
+  // Effect to handle filtering when search query changes
+  useEffect(() => {
+    if (!djangoJobs || djangoJobs.length === 0) {
+      setFilteredJobs([]);
+      return;
+    }
+    
+    if (searchedQuery && searchedQuery !== "") {
+      // Parse filter values from the search query
+      let location = "NA";
+      let specialization = "NA";
+      let salary = "NA";
+      let experience = "NA";
+      
+      const parts = searchedQuery.split(" | ");
+      parts.forEach((part) => {
+        if (part.startsWith("Location:"))
+          location = part.split("Location:")[1].trim();
+        if (part.startsWith("Specialization:"))
+          specialization = part.split("Specialization:")[1].trim();
+        if (part.startsWith("Salary:"))
+          salary = part.split("Salary:")[1].trim();
+        if (part.startsWith("Experience:"))
+          experience = part.split("Experience:")[1].trim();
+      });
+      
+      // Apply filters
+      const filtered = djangoJobs.filter(job => {
+        // Location filter
+        const matchesLocation = 
+          location === "NA" || 
+          (job.location && job.location.toLowerCase().includes(location.toLowerCase()));
+          
+        // Specialization filter (check title and description)
+        const matchesSpecialization = 
+          specialization === "NA" || 
+          (job.title && job.title.toLowerCase().includes(specialization.toLowerCase())) ||
+          (job.description && job.description.toLowerCase().includes(specialization.toLowerCase()));
+          
+        // Salary filter - basic implementation
+        const matchesSalary = salary === "NA"; // Simplified as we may not have exact salary info
+        
+        // Experience filter
+        const matchesExperience = 
+          experience === "NA" ||
+          (experience === "Fresher" && job.experienceLevel === 0) ||
+          (experience === "1-2 years" && job.experienceLevel >= 1 && job.experienceLevel <= 2) ||
+          (experience === "3-5 years" && job.experienceLevel >= 3 && job.experienceLevel <= 5) ||
+          (experience === "5-8 years" && job.experienceLevel >= 5 && job.experienceLevel <= 8) ||
+          (experience === "8+ years" && job.experienceLevel >= 8);
+        
+        return matchesLocation && matchesSpecialization && matchesSalary && matchesExperience;
+      });
+      
+      setFilteredJobs(filtered);
+    } else {
+      setFilteredJobs(djangoJobs);
+    }
+  }, [djangoJobs, searchedQuery]);
 
   // Handle pagination
   const handlePreviousPage = () => {
@@ -86,7 +150,17 @@ const DjangoJobs = () => {
           </p>
         </div>
 
-        {!djangoJobs || djangoJobs.length <= 0 ? (
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Filter sidebar */}
+          <div className="md:w-[300px] lg:w-[320px] shrink-0">
+            <div className="sticky top-20">
+              <AIFilterCard />
+            </div>
+          </div>
+
+          {/* Main content */}
+          <div className="flex-1">
+            {!filteredJobs || filteredJobs.length <= 0 ? (
           <div className="bg-gray-50 p-8 rounded-lg text-center">
             <h2 className="text-xl font-semibold mb-2">No jobs found</h2>
             <p className="text-gray-600">
@@ -96,8 +170,8 @@ const DjangoJobs = () => {
           </div>
         ) : (
           <div className="pb-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {djangoJobs.map((job) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {filteredJobs.map((job) => (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -186,6 +260,8 @@ const DjangoJobs = () => {
             </div>
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

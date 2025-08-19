@@ -1,6 +1,6 @@
 import React from "react";
 import Navbar from "./shared/Navbar";
-import FilterCard from "./FilterCard";
+import EnhancedFilterCard from "./EnhancedFilterCard";
 import Job from "./Job";
 import { motion } from "framer-motion";
 import { useSelector, useDispatch } from "react-redux";
@@ -80,7 +80,7 @@ const Jobs = () => {
         <div className="max-w-7xl mx-auto mt-5">
           <div className="flex gap-5">
             <div className="w-[20%] sticky top-20 self-start">
-              <FilterCard />
+              <EnhancedFilterCard />
             </div>
             <div className="flex-1 flex justify-center items-center min-h-[60vh]">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -99,7 +99,7 @@ const Jobs = () => {
         <div className="max-w-7xl mx-auto mt-5">
           <div className="flex gap-5">
             <div className="w-[20%] sticky top-20 self-start">
-              <FilterCard />
+              <EnhancedFilterCard />
             </div>
             <div className="flex-1">
               <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md">
@@ -119,7 +119,7 @@ const Jobs = () => {
       <div className="max-w-7xl mx-auto mt-5">
         <div className="flex gap-5">
           <div className="w-[20%] sticky top-20 self-start">
-            <FilterCard />
+            <EnhancedFilterCard />
           </div>
           {!allJobs || allJobs.length <= 0 ? (
             <div className="flex-1">

@@ -46,7 +46,98 @@ const JobDescription = () => {
     }
   };
   
+  // New function to match with existing resume ID
+  const handleAutomaticMatch = async () => {
+    const userResumeId = user?.profile?.resumeId;
+    const djangoJobId = singleJob?.djangoJobId;
+    
+    if (!userResumeId) {
+      // No stored resume ID, open the upload dialog
+      setIsResumeModalOpen(true);
+      return;
+    }
+    
+    if (!djangoJobId) {
+      toast.error("This job doesn't have a Django job ID associated with it");
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      toast.info("Matching your resume with this job...");
+      
+      // Call Django match endpoint directly with stored IDs
+      const matchUrl = "http://localhost:5000/api/find_jobs/";
+      console.log("Requesting match from Django with stored resume_id", userResumeId, "and job_id", djangoJobId);
+      
+      const matchRes = await fetch(matchUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume_id: userResumeId, job_id: djangoJobId }),
+      });
+      
+      if (!matchRes.ok) {
+        const txt = await matchRes.text();
+        console.error("Match request failed:", txt);
+        toast.error("Failed to get match results");
+        return;
+      }
+      
+      const responseJson = await matchRes.json();
+      console.log("Match response from server:", responseJson);
+      
+      if (!responseJson || !responseJson.match) {
+        console.error("Invalid response format - missing match field:", responseJson);
+        toast.error("The server returned an invalid response format");
+        return;
+      }
+      
+      // Parse the JSON string in the match field
+      let matchJson;
+      try {
+        matchJson = JSON.parse(responseJson.match);
+        console.log("Parsed match JSON:", matchJson);
+      } catch (parseError) {
+        console.error("Failed to parse match JSON:", parseError, responseJson.match);
+        toast.error("Failed to parse match results");
+        return;
+      }
+      
+      // Validate the parsed structure
+      if (!matchJson || typeof matchJson !== 'object') {
+        console.error("Invalid parsed match format:", matchJson);
+        toast.error("The server returned an invalid response format");
+        return;
+      }
+      
+      // Ensure all array fields exist even if they're empty
+      const sanitizedResults = {
+        rank: matchJson.rank || 0,
+        skills: Array.isArray(matchJson.skills) ? matchJson.skills : [],
+        missing_skills: Array.isArray(matchJson.missing_skills) ? matchJson.missing_skills : [],
+        project_category: Array.isArray(matchJson.project_category) ? matchJson.project_category : [],
+        improvement_suggestions: Array.isArray(matchJson.improvement_suggestions) ? matchJson.improvement_suggestions : [],
+        total_experience: matchJson.total_experience || 0
+      };
+      
+      // Show results
+      setMatchResults(sanitizedResults);
+      setIsResumeModalOpen(true);
+    } catch (error) {
+      console.error("Error matching resume with stored IDs:", error);
+      toast.error(`Failed to match resume: ${error.message}`);
+      // Open modal to allow manual upload as fallback
+      setIsResumeModalOpen(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Original handler for manual uploads
   const handleResumeUpload = async () => {
+    
+    // Regular upload flow if user doesn't have resumeId or direct matching failed
     if (!resumeFile) {
       toast.error("Please upload a resume");
       return;
@@ -62,45 +153,121 @@ const JobDescription = () => {
       const formData = new FormData();
       formData.append("resume", resumeFile);
       formData.append("job_description", singleJob?.description || "");
-      
-      console.log("FormData created, sending request to API...");
-      console.log("Doing from the handleResumeUpload");
-      
-      // Important: When sending FormData, do NOT set Content-Type header
-      // Axios will automatically set the correct Content-Type with boundary
-      const response = await axios.post(
-        "http://localhost:5000/api/match_resume_job/",
-        formData,
-        {
-          headers: {
-            // Let Axios set this automatically for FormData
-            // "Content-Type": "multipart/form-data", 
-          },
-          withCredentials: false
-        }
-      );
-      
-        console.log("API response received:", response.data);
-        
-        // Alert with response data to help with debugging
-        alert(`Response received from server: ${JSON.stringify(response.data)}`);
-        
-        // Check if response.data.match exists
-        if (!response.data.match) {
-          console.error("No match data in response:", response.data);
-          toast.error("Invalid response from server - no match data found");
-          return;
-        }      try {
-        // Parse the match string to JSON object
-        console.log("Raw match data:", response.data.match);
-        const matchData = JSON.parse(response.data.match);
-        console.log("Parsed match data:", matchData);
-        setMatchResults(matchData);
-      } catch (parseError) {
-        console.error("Error parsing match data:", parseError);
-        console.error("Raw data that failed to parse:", response.data.match);
-        toast.error("Failed to parse match results");
+
+      // Step 1: upload resume to Django resume upload endpoint
+      console.log("Uploading resume to Django upload endpoint...");
+      const djangoUploadUrl = "http://localhost:5000/api/upload_resume/";
+      const uploadForm = new FormData();
+      uploadForm.append("file", resumeFile, resumeFile.name);
+
+      const uploadRes = await fetch(djangoUploadUrl, {
+        method: "POST",
+        body: uploadForm,
+      });
+
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text();
+        console.error("Django upload failed:", errText);
+        toast.error("Failed to upload resume to server");
+        return;
       }
+
+      const uploadData = await uploadRes.json();
+      console.log("Django upload response:", uploadData);
+
+      if (!uploadData.id) {
+        toast.error("Django did not return a resume id");
+        return;
+      }
+
+      const resumeId = uploadData.id;
+      
+      // Store the resume ID in the user's profile for future use
+      if (user && resumeId) {
+        try {
+          console.log("Updating user profile with resume ID:", resumeId);
+          
+          // Create form data since the endpoint expects multipart/form-data
+          const formData = new FormData();
+          formData.append("resumeId", resumeId);
+          formData.append("resumeOriginalName", resumeFile.name);
+          
+          const updateResp = await axios.post("/api/user/profile/update", formData, { 
+            withCredentials: true,
+            headers: { "Content-Type": "multipart/form-data" }
+          });
+          
+          if (updateResp.data.success) {
+            console.log("Successfully updated user profile with resume ID");
+          }
+        } catch (updateErr) {
+          console.error("Failed to update user profile with resume ID:", updateErr);
+          // Continue with match process even if profile update fails
+        }
+      }
+
+      // Step 2: call Django groq_match endpoint (find_jobs/) with resume_id and job_id
+      const matchUrl = "http://localhost:5000/api/find_jobs/";
+      
+      if (!djangoJobId) {
+        toast.error("This job doesn't have a Django job ID associated with it");
+        return;
+      }
+      
+      console.log("Requesting match from Django with resume_id", resumeId, "and job_id", djangoJobId);
+
+      const matchRes = await fetch(matchUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume_id: resumeId, job_id: djangoJobId }),
+      });
+
+      if (!matchRes.ok) {
+        const txt = await matchRes.text();
+        console.error("Match request failed:", txt);
+        toast.error("Failed to get match results");
+        return;
+      }
+
+      const responseJson = await matchRes.json();
+      console.log("Match response from server:", responseJson);
+      
+      if (!responseJson || !responseJson.match) {
+        console.error("Invalid response format - missing match field:", responseJson);
+        toast.error("The server returned an invalid response format");
+        return;
+      }
+      
+      // Parse the JSON string in the match field
+      let matchJson;
+      try {
+        matchJson = JSON.parse(responseJson.match);
+        console.log("Parsed match JSON:", matchJson);
+      } catch (parseError) {
+        console.error("Failed to parse match JSON:", parseError, responseJson.match);
+        toast.error("Failed to parse match results");
+        return;
+      }
+      
+      // Validate the parsed structure
+      if (!matchJson || typeof matchJson !== 'object') {
+        console.error("Invalid parsed match format:", matchJson);
+        toast.error("The server returned an invalid response format");
+        return;
+      }
+      
+      // Ensure all array fields exist even if they're empty
+      const sanitizedResults = {
+        rank: matchJson.rank || 0,
+        skills: Array.isArray(matchJson.skills) ? matchJson.skills : [],
+        missing_skills: Array.isArray(matchJson.missing_skills) ? matchJson.missing_skills : [],
+        project_category: Array.isArray(matchJson.project_category) ? matchJson.project_category : [],
+        improvement_suggestions: Array.isArray(matchJson.improvement_suggestions) ? matchJson.improvement_suggestions : [],
+        total_experience: matchJson.total_experience || 0
+      };
+      
+      // The Django endpoint directly returns JSON, not a match field that needs parsing
+      setMatchResults(sanitizedResults);
     } catch (error) {
       console.error("Error matching resume:", error);
       console.error("Error details:", error.response?.data || error.message);
@@ -159,10 +326,18 @@ const isAppliedHandler = async () => {
         </div>
         <div className="flex gap-3">
           <Button
-            onClick={() => setIsResumeModalOpen(true)}
+            onClick={handleAutomaticMatch}
             className="rounded-lg bg-blue-600 hover:bg-blue-700"
+            disabled={isLoading}
           >
-            Match Your Resume
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Matching...
+              </>
+            ) : (
+              "Match Your Resume"
+            )}
           </Button>
           <Button
             onClick={isApplied ? null : applyJobHandler}
@@ -269,49 +444,57 @@ const isAppliedHandler = async () => {
             ) : (
               <div className="space-y-4">
                 <div className="border rounded-lg p-4 bg-blue-50">
-                  <h3 className="font-bold text-lg mb-2">Match Score: {matchResults.rank}/100</h3>
+                  <h3 className="font-bold text-lg mb-2">Match Score: {matchResults?.rank || 0}/100</h3>
                   
-                  <div className="mb-4">
-                    <h4 className="font-semibold">Your Skills:</h4>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {matchResults.skills.map((skill, index) => (
-                        <Badge key={index} variant="outline" className="bg-blue-100">
-                          {skill}
-                        </Badge>
-                      ))}
+                  {matchResults?.skills && matchResults.skills.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="font-semibold">Your Skills:</h4>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {matchResults.skills.map((skill, index) => (
+                          <Badge key={index} variant="outline" className="bg-blue-100">
+                            {skill}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                   
-                  <div className="mb-4">
-                    <h4 className="font-semibold">Missing Skills:</h4>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {matchResults.missing_skills.map((skill, index) => (
-                        <Badge key={index} variant="outline" className="bg-red-100 text-red-800">
-                          {skill}
-                        </Badge>
-                      ))}
+                  {matchResults?.missing_skills && matchResults.missing_skills.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="font-semibold">Missing Skills:</h4>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {matchResults.missing_skills.map((skill, index) => (
+                          <Badge key={index} variant="outline" className="bg-red-100 text-red-800">
+                            {skill}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                   
-                  <div className="mb-4">
-                    <h4 className="font-semibold">Project Categories:</h4>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {matchResults.project_category.map((category, index) => (
-                        <Badge key={index} variant="outline" className="bg-green-100">
-                          {category}
-                        </Badge>
-                      ))}
+                  {matchResults?.project_category && matchResults.project_category.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="font-semibold">Project Categories:</h4>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {matchResults.project_category.map((category, index) => (
+                          <Badge key={index} variant="outline" className="bg-green-100">
+                            {category}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                   
-                  <div>
-                    <h4 className="font-semibold">Improvement Suggestions:</h4>
-                    <ul className="list-disc pl-5 mt-1 space-y-1 text-sm">
-                      {matchResults.improvement_suggestions.map((suggestion, index) => (
-                        <li key={index}>{suggestion}</li>
-                      ))}
-                    </ul>
-                  </div>
+                  {matchResults?.improvement_suggestions && matchResults.improvement_suggestions.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold">Improvement Suggestions:</h4>
+                      <ul className="list-disc pl-5 mt-1 space-y-1 text-sm">
+                        {matchResults.improvement_suggestions.map((suggestion, index) => (
+                          <li key={index}>{suggestion}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 
                 <DialogFooter>

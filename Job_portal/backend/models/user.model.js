@@ -31,10 +31,17 @@ const userSchema = new mongoose.Schema({
     bio: { type: String },
     skills: [{ type: String }],
     resume: { type: String }, // URL or path to resume file
+    resumeId: { type: String }, // Django-generated resume ID
     resumeOriginalName: { type: String }, // Original name of the resume file
     compony: { type: mongoose.Schema.Types.ObjectId, ref: "Company" }, // Reference to Company model
     profilePicture: { type: String, default: "" }, // URL or path to profile picture
   },
+  bookmarkedJobs: [
+    {
+      job: { type: mongoose.Schema.Types.ObjectId, ref: "Job" },
+      bookmarkedAt: { type: Date, default: Date.now }
+    }
+  ],
 },{timestamps: true}); // Automatically manage createdAt and updatedAt fields
 
 export const User = mongoose.model("User", userSchema);

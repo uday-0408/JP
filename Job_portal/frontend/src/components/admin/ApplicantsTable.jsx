@@ -76,14 +76,16 @@ const ApplicantsTable = () => {
                 <TableCell>{item?.applicant?.[0]?.email}</TableCell>
                 <TableCell>{item?.applicant?.[0]?.phoneNumber}</TableCell>
                 <TableCell>
-                  {item?.applicant?.[0]?.profile?.resume ? (
+                  {item?.applicant?.[0]?.profile?.resumeId || item?.applicant?.[0]?.profile?.resume ? (
                     <a
                       className="text-blue-600 cursor-pointer"
-                      href={item?.applicant?.[0]?.profile?.resume}
+                      href={item?.applicant?.[0]?.profile?.resumeId 
+                        ? `http://localhost:5000/api/get_resume/?resume_id=${item?.applicant?.[0]?.profile?.resumeId}`
+                        : item?.applicant?.[0]?.profile?.resume}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      {item?.applicant?.[0]?.profile?.resumeOriginalName}
+                      {item?.applicant?.[0]?.profile?.resumeOriginalName || "Resume.pdf"}
                     </a>
                   ) : (
                     <span>NA</span>

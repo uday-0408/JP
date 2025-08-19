@@ -1,8 +1,8 @@
 import { User } from "../models/user.model.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import cloudinary from "../utils/cloudinary.js";
 import getDataUri from "../utils/datauri.js";
+import axios from "axios";
 // import streamifier from "streamifier";s
 
 export const register = async (req, res) => {
@@ -174,16 +174,81 @@ export const updateProfile = async (req, res) => {
       console.log("  Mimetype:", file.mimetype);
       console.log("  Buffer Length:", file.buffer?.length);
 
-      // Upload to cloudinary only if file exists
-      const fileUri = getDataUri(file);
-      if (fileUri) {
-        cloudResponse = await cloudinary.uploader.upload(fileUri.content, {
-          resource_type: "raw",
-          folder: "Job Portal",
-          public_id: `Job Portal/${file.originalname}`,
-          use_filename: true,
-          unique_filename: false,
-        });
+      // Instead of uploading to Cloudinary, forward the resume to the Django resume upload endpoint
+      try {
+        // Add extensive debugging for connection
+        console.log("DJANGO_END_POINT from env:", process.env.DJANGO_END_POINT);
+        
+        // Try to use env var, but with strong fallback to ensure it works
+        let djangoUrl = process.env.DJANGO_END_POINT ? 
+          `${process.env.DJANGO_END_POINT.replace(/\/+$/, "")}/upload_resume/` : 
+          "http://localhost:5000/api/upload_resume/";
+          
+        // Ensure we're using port 5000 - if env var has a different port, log a warning
+        if (!djangoUrl.includes('localhost:5000') && !djangoUrl.includes('127.0.0.1:5000')) {
+          console.warn("WARNING: Django URL from env doesn't specify port 5000. Using port 5000 instead.");
+          djangoUrl = "http://localhost:5000/api/upload_resume/";
+        }
+        
+        console.log("Attempting to connect to Django URL:", djangoUrl);
+          
+        // Import FormData properly in ESM
+        const FormDataModule = await import('form-data');
+        const FormData = FormDataModule.default;
+        const form = new FormData();
+        form.append('file', file.buffer, { filename: file.originalname, contentType: file.mimetype });
+
+        console.log("FormData created successfully with file");
+        const headers = form.getHeaders();
+        console.log("Request headers:", headers);
+
+        console.log("Sending POST request to Django...");
+        console.log("Request URL:", djangoUrl);
+        
+        const djangoRes = await axios.post(djangoUrl, form, {
+          headers,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+          timeout: 10000, // 10-second timeout for clarity,
+          validateStatus: status => true // Accept any status to see what Django returns
+        });        // Log full response details regardless of outcome
+        console.log('Django response status:', djangoRes.status);
+        console.log('Django response headers:', djangoRes.headers);
+        console.log('Django response data:', djangoRes.data);
+        
+        if (djangoRes.status >= 400) {
+          console.error(`Django returned error status ${djangoRes.status}:`, djangoRes.data);
+          throw new Error(`Django server error: ${djangoRes.status} - ${JSON.stringify(djangoRes.data)}`);
+        }
+        
+        if (djangoRes?.data?.id) {
+          cloudResponse = { resumeId: djangoRes.data.id };
+          console.log('Resume uploaded to Django, id:', djangoRes.data.id);
+        } else {
+          console.warn('Django upload did not return expected id format. Response:', djangoRes.data);
+        }
+      } catch (djangoErr) {
+        console.error('Error uploading resume to Django endpoint:', djangoErr?.message);
+        
+        // Network error detailed debugging
+        if (djangoErr.code) {
+          console.error('Error code:', djangoErr.code);
+        }
+        
+        if (djangoErr.config) {
+          console.error('Request was made to:', djangoErr.config.url);
+          console.error('Request method:', djangoErr.config.method);
+        }
+        
+        if (djangoErr.code === 'MODULE_NOT_FOUND') {
+          console.error('Missing npm module. Please run: npm install form-data axios');
+        } else if (djangoErr.code === 'ECONNREFUSED') {
+          console.error('Connection refused. Make sure Django server is running at', process.env.DJANGO_END_POINT);
+          console.error('Check that your Django port matches the .env DJANGO_END_POINT setting');
+        }
+        
+        // Print stack regardless
+        console.error('Stack trace:', djangoErr.stack);
       }
     }
 
@@ -206,12 +271,25 @@ export const updateProfile = async (req, res) => {
     if (phoneNumber) user.phoneNumber = phoneNumber;
     if (bio) user.profile.bio = bio;
     if (skills) user.profile.skills = skillsArray;
+    
+    // Direct resumeId update (when provided without a file)
+    if (req.body.resumeId) {
+      user.profile.resumeId = req.body.resumeId;
+      console.log("Resume ID updated from form data:", req.body.resumeId);
+    }
+    
+    // Direct resumeOriginalName update (when provided without a file)
+    if (req.body.resumeOriginalName) {
+      user.profile.resumeOriginalName = req.body.resumeOriginalName;
+      console.log("Resume original name updated from form data:", req.body.resumeOriginalName);
+    }
 
-    // Update resume only if a file was uploaded successfully
-    if (cloudResponse) {
-      user.profile.resume = cloudResponse.secure_url; // save the cloudinary url
-      user.profile.resumeOriginalName = file.originalname; // Save the original file name
-      console.log("Resume uploaded to Cloudinary:", cloudResponse.secure_url);
+    // Update resume if a file was uploaded successfully to Django
+    if (cloudResponse && cloudResponse.resumeId) {
+      // store the returned Django resume id and the original filename for reference
+      user.profile.resumeId = cloudResponse.resumeId;
+      user.profile.resumeOriginalName = file.originalname;
+      console.log("Resume recorded with Django id:", cloudResponse.resumeId);
     }
 
     await user.save();
